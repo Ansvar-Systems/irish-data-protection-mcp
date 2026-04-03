@@ -1,33 +1,37 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "eu.ansvar/irish-data-protection-mcp",
-  "description": "Query DPC decisions, sanctions, and guidance on data protection and GDPR enforcement in Ireland",
+  "description": "DPC (Irish data protection authority) MCP server — decisions, sanctions, and guidance on GDPR enforcement in Ireland",
   "repository": {
     "url": "https://github.com/Ansvar-Systems/irish-data-protection-mcp",
     "source": "github"
   },
   "homepage": "https://ansvar.eu",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "license": "Apache-2.0",
   "keywords": [
-    "dpc",
-    "irish-data-protection",
-    "gdpr",
+    "data protection",
     "ireland",
-    "data-protection",
-    "privacy",
-    "sanctions",
+    "regulation",
     "compliance",
-    "mcp",
-    "ansvar"
+    "mcp"
   ],
   "packages": [
     {
       "registryType": "npm",
       "identifier": "@ansvar/irish-data-protection-mcp",
-      "version": "0.1.0",
+      "version": "1.0.0",
       "transport": {
         "type": "stdio"
+      }
+    },
+    {
+      "registryType": "npm",
+      "identifier": "@ansvar/irish-data-protection-mcp",
+      "version": "1.0.0",
+      "transport": {
+        "type": "streamable-http",
+        "url": "https://mcp.ansvar.eu/irish-data-protection/mcp"
       }
     }
   ]

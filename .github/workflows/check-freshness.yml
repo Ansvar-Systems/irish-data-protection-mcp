@@ -1,0 +1,54 @@
+name: Check Data Freshness
+
+on:
+  schedule:
+    # Run every Monday at 08:00 UTC
+    - cron: "0 8 * * 1"
+  workflow_dispatch:
+
+jobs:
+  check-freshness:
+    name: Check DPC data freshness
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Check DPC website for new content
+        id: freshness
+        run: |
+          echo "Checking DPC website for new decisions and guidance..."
+
+          # Fetch the DPC decisions page and capture HTTP status
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+            "https://www.dataprotection.ie/en/dpc-guidance/decisions" \
+            --max-time 30 \
+            --user-agent "ansvar-freshness-check/1.0")
+
+          echo "DPC decisions page status: $STATUS"
+
+          if [ "$STATUS" != "200" ]; then
+            echo "::warning::DPC website returned HTTP $STATUS — cannot check freshness"
+            echo "dpc_reachable=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "dpc_reachable=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Report freshness status
+        run: |
+          echo "## Data Freshness Check" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **DPC website reachable:** ${{ steps.freshness.outputs.dpc_reachable }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Next step:** If new decisions have been published, trigger the \`ingest.yml\` workflow." >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "Source: https://www.dataprotection.ie/en/dpc-guidance/decisions" >> "$GITHUB_STEP_SUMMARY"

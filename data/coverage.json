@@ -1,0 +1,41 @@
+{
+  "schema_version": "1.0",
+  "mcp": "eu.ansvar/irish-data-protection-mcp",
+  "authority": "DPC — Data Protection Commission Ireland",
+  "source_url": "https://www.dataprotection.ie/",
+  "corpus": {
+    "decisions": {
+      "description": "DPC decisions, cross-border inquiries (Article 56 GDPR), enforcement notices, and binding decisions",
+      "coverage_start": "2018-05-25",
+      "coverage_end": "see check_data_freshness tool",
+      "notes": "Pre-GDPR decisions under Data Protection Acts 1988/2003 not included"
+    },
+    "guidelines": {
+      "description": "DPC guides, codes of practice, regulatory advice, and FAQs",
+      "coverage_start": null,
+      "coverage_end": "see check_data_freshness tool",
+      "notes": "Active documents only; superseded guidance may not be present"
+    },
+    "topics": [
+      "transfers",
+      "children",
+      "big_tech",
+      "social_media",
+      "breach_notification",
+      "consent",
+      "profiling",
+      "data_subject_rights",
+      "adequacy"
+    ]
+  },
+  "known_gaps": [
+    "Pre-GDPR decisions (before 2018-05-25)",
+    "Informal correspondence and unpublished regulatory exchanges",
+    "Decisions published after last ingest date",
+    "EDPB Article 65 binding decisions addressed to DPC (partial coverage)"
+  ],
+  "refresh": {
+    "schedule": "Manual — trigger ingest.yml workflow or run `npm run ingest`",
+    "freshness_tool": "check_data_freshness"
+  }
+}

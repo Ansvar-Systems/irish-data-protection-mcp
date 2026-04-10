@@ -1,0 +1,94 @@
+name: Ingest DPC Data
+
+on:
+  workflow_dispatch:
+    inputs:
+      force_rebuild:
+        description: "Force full rebuild even if data appears current"
+        required: false
+        default: "false"
+        type: boolean
+
+jobs:
+  ingest:
+    name: Ingest DPC decisions and guidance
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build TypeScript
+        run: npm run build
+
+      - name: Create data directory
+        run: mkdir -p data
+
+      - name: Run DPC ingest
+        env:
+          DPC_DB_PATH: data/dpc.db
+          FORCE_REBUILD: ${{ inputs.force_rebuild }}
+        run: |
+          echo "Starting DPC data ingest..."
+          npm run ingest
+          echo "Ingest complete."
+
+      - name: Verify database
+        run: |
+          if [ ! -f data/dpc.db ]; then
+            echo "::error::Database file not found after ingest"
+            exit 1
+          fi
+          SIZE=$(stat -c%s data/dpc.db)
+          echo "Database size: $SIZE bytes"
+          if [ "$SIZE" -lt 1024 ]; then
+            echo "::warning::Database appears very small ($SIZE bytes) — ingest may have failed"
+          fi
+
+      - name: Compress database
+        run: |
+          gzip -k data/dpc.db
+          echo "Compressed: $(stat -c%s data/dpc.db.gz) bytes"
+
+      - name: Upload database artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: dpc-database-${{ github.run_number }}
+          path: data/dpc.db.gz
+          retention-days: 90
+
+      - name: Create GitHub Release with database
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: data-${{ github.run_number }}
+          name: "DPC Database — ingest run ${{ github.run_number }}"
+          body: |
+            Automated DPC data ingest run ${{ github.run_number }}.
+
+            **Triggered by:** ${{ github.actor }}
+            **Date:** ${{ github.event.head_commit.timestamp || 'manual' }}
+
+            Download `database.db.gz` and extract to `data/dpc.db` for local use.
+          files: data/dpc.db.gz
+          make_latest: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Summary
+        run: |
+          echo "## Ingest Complete" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Database: \`data/dpc.db\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Size: $(stat -c%s data/dpc.db) bytes" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Artifact: \`dpc-database-${{ github.run_number }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "The ghcr-build workflow will automatically pick up the new database on the next push to \`main\` or \`dev\`." >> "$GITHUB_STEP_SUMMARY"

@@ -25,6 +25,7 @@ import {
   searchGuidelines,
   getGuideline,
   listTopics,
+  getDataFreshness,
 } from "./db.js";
 import { buildCitation } from "./utils/citation.js";
 
@@ -151,6 +152,26 @@ const TOOLS = [
       required: [],
     },
   },
+  {
+    name: "list_sources",
+    description:
+      "List all data sources used by this MCP server, including URLs, coverage dates, and licensing information.",
+    inputSchema: {
+      type: "object" as const,
+      properties: {},
+      required: [],
+    },
+  },
+  {
+    name: "check_data_freshness",
+    description:
+      "Check when the data was last ingested, total record counts, and whether the corpus is up to date.",
+    inputSchema: {
+      type: "object" as const,
+      properties: {},
+      required: [],
+    },
+  },
 ];
 
 // --- Zod schemas for argument validation --------------------------------------
@@ -177,19 +198,42 @@ const GetGuidelineArgs = z.object({
   id: z.number().int().positive(),
 });
 
-// --- Helper ------------------------------------------------------------------
+// --- Helpers ------------------------------------------------------------------
+
+function responseMeta() {
+  return {
+    disclaimer:
+      "Data sourced from the Irish Data Protection Commission (DPC). This MCP provides access to publicly available regulatory decisions and guidance. Not legal advice. Always verify against official DPC publications at https://www.dataprotection.ie/.",
+    data_age: "See check_data_freshness tool for current data age.",
+    copyright: "Data Protection Commission Ireland. Reproduced for informational purposes.",
+    source_url: "https://www.dataprotection.ie/",
+  };
+}
 
 function textContent(data: unknown) {
+  const payload =
+    typeof data === "object" && data !== null
+      ? { ...(data as Record<string, unknown>), _meta: responseMeta() }
+      : { data, _meta: responseMeta() };
   return {
     content: [
-      { type: "text" as const, text: JSON.stringify(data, null, 2) },
+      { type: "text" as const, text: JSON.stringify(payload, null, 2) },
     ],
   };
 }
 
-function errorContent(message: string) {
+function errorContent(message: string, errorType = "tool_error") {
   return {
-    content: [{ type: "text" as const, text: message }],
+    content: [
+      {
+        type: "text" as const,
+        text: JSON.stringify(
+          { error: message, _error_type: errorType, _meta: responseMeta() },
+          null,
+          2,
+        ),
+      },
+    ],
     isError: true as const,
   };
 }
@@ -218,21 +262,30 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           topic: parsed.topic,
           limit: parsed.limit,
         });
-        return textContent({ results, count: results.length });
+        const resultsWithCitations = (results as Record<string, unknown>[]).map((r) => ({
+          ...r,
+          _citation: buildCitation(
+            String(r["reference"] ?? ""),
+            String(r["title"] ?? r["reference"] ?? ""),
+            "ie_dp_get_decision",
+            { reference: String(r["reference"] ?? "") },
+          ),
+        }));
+        return textContent({ results: resultsWithCitations, count: results.length });
       }
 
       case "ie_dp_get_decision": {
         const parsed = GetDecisionArgs.parse(args);
         const decision = getDecision(parsed.reference);
         if (!decision) {
-          return errorContent(`Decision not found: ${parsed.reference}`);
+          return errorContent(`Decision not found: ${parsed.reference}`, "not_found");
         }
         const dec = decision as Record<string, unknown>;
         return textContent({
           ...decision,
           _citation: buildCitation(
-            String(dec.reference ?? parsed.reference),
-            String(dec.title ?? dec.reference ?? parsed.reference),
+            String(dec["reference"] ?? parsed.reference),
+            String(dec["title"] ?? dec["reference"] ?? parsed.reference),
             "ie_dp_get_decision",
             { reference: parsed.reference },
           ),
@@ -247,21 +300,30 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           topic: parsed.topic,
           limit: parsed.limit,
         });
-        return textContent({ results, count: results.length });
+        const resultsWithCitations = (results as Record<string, unknown>[]).map((r) => ({
+          ...r,
+          _citation: buildCitation(
+            String(r["reference"] ?? r["id"] ?? ""),
+            String(r["title"] ?? r["reference"] ?? ""),
+            "ie_dp_get_guideline",
+            { id: String(r["id"] ?? "") },
+          ),
+        }));
+        return textContent({ results: resultsWithCitations, count: results.length });
       }
 
       case "ie_dp_get_guideline": {
         const parsed = GetGuidelineArgs.parse(args);
         const guideline = getGuideline(parsed.id);
         if (!guideline) {
-          return errorContent(`Guideline not found: id=${parsed.id}`);
+          return errorContent(`Guideline not found: id=${parsed.id}`, "not_found");
         }
         const gl = guideline as Record<string, unknown>;
         return textContent({
           ...guideline,
           _citation: buildCitation(
-            String(gl.reference ?? gl.id ?? parsed.id),
-            String(gl.title ?? gl.reference ?? `Guideline ${parsed.id}`),
+            String(gl["reference"] ?? gl["id"] ?? parsed.id),
+            String(gl["title"] ?? gl["reference"] ?? `Guideline ${parsed.id}`),
             "ie_dp_get_guideline",
             { id: String(parsed.id) },
           ),
@@ -289,8 +351,52 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         });
       }
 
+      case "list_sources": {
+        return textContent({
+          sources: [
+            {
+              name: "DPC Decisions & Enforcement",
+              url: "https://www.dataprotection.ie/en/dpc-guidance/decisions",
+              description:
+                "Irish Data Protection Commission decisions, cross-border inquiries, binding decisions, and enforcement notices",
+              coverage: "DPC decisions since establishment; GDPR decisions from May 2018",
+              license: "Public sector information — reproduced for informational purposes",
+              refresh_schedule: "Manual ingest on new DPC publication",
+            },
+            {
+              name: "DPC Guidance Documents",
+              url: "https://www.dataprotection.ie/en/dpc-guidance",
+              description:
+                "DPC guidance: codes of practice, data protection guides, regulatory advice, and FAQs",
+              coverage: "Active guidance documents published by the DPC",
+              license: "Public sector information — reproduced for informational purposes",
+              refresh_schedule: "Manual ingest on new DPC publication",
+            },
+          ],
+          count: 2,
+        });
+      }
+
+      case "check_data_freshness": {
+        const freshness = getDataFreshness();
+        const status =
+          freshness.decisions_count === 0 && freshness.guidelines_count === 0
+            ? "empty"
+            : "populated";
+        return textContent({
+          status,
+          decisions_count: freshness.decisions_count,
+          guidelines_count: freshness.guidelines_count,
+          topics_count: freshness.topics_count,
+          latest_decision_date: freshness.latest_decision_date,
+          latest_guideline_date: freshness.latest_guideline_date,
+          source: "https://www.dataprotection.ie/",
+          note: "Run the ingest workflow or `npm run ingest` to refresh the dataset.",
+        });
+      }
+
       default:
-        return errorContent(`Unknown tool: ${name}`);
+        return errorContent(`Unknown tool: ${name}`, "unknown_tool");
     }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
